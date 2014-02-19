@@ -1,44 +1,43 @@
 package main
 
-import "flag"
-import "fmt"
-import "strings"
-import "net/http"
-import "io/ioutil"
-import "bufio"
-import "os"
-import "log"
-import "encoding/json"
+import (
+	"bufio"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"io/ioutil"
+	"log"
+	"net/http"
+	"os"
+	"strings"
+)
 
-type Opencnam struct {
-	Number  string `json:"number"`
-	Created string `json:"created"`
-	Updated string `json:"updated"`
-	Name    string `json:"name"`
-	Uri     string `json:"uri"`
+type Opencnams struct {
+	Results []Opencnam `json:"results"`
 }
 
-func cnamReq(phonenum, sid, token string) {
+type Opencnam struct {
+	Number string `json:"number"`
+	Name   string `json:"name"`
+}
+
+func cnamReq(phonenum, sid, token string) (Opencnam, error) {
+	oc := Opencnam{}
 	resp, err := http.Get("https://api.opencnam.com/v2/phone/+" + phonenum + "?format=json&account_sid=" + sid + "&auth_token=" + token)
 	if err != nil {
-		fmt.Printf("%s", err)
-	} else {
-		defer resp.Body.Close()
-		src_json, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			fmt.Printf("%s", err)
-		}
-		oc := Opencnam{}
-		e := json.Unmarshal(src_json, &oc)
-		if e != nil {
-			panic(e)
-		}
-		if src_json != nil {
-			mapJsonOne := map[string]interface{}{"Phone": strings.TrimLeft(oc.Number, "+"), "Name": oc.Name}
-			mapJsonTwo, _ := json.Marshal(mapJsonOne)
-			fmt.Println(string(mapJsonTwo))
-		}
+		return oc, err
 	}
+	defer resp.Body.Close()
+	data, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return oc, err
+	}
+	err = json.Unmarshal(data, &oc)
+	if err != nil {
+		return oc, err
+	}
+	oc.Number = strings.TrimLeft(oc.Number, "+")
+	return oc, nil
 }
 
 func readLines(path string) ([]string, error) {
@@ -57,39 +56,44 @@ func readLines(path string) ([]string, error) {
 }
 
 func main() {
-	phonePtr := flag.String("phone", "", "a single phone number")
-	phoneFilePtr := flag.String("file", "", "a list of phone numbers")
-	sidPtr := flag.String("sid", "", "the opencnam api sid")
-	tokenPtr := flag.String("token", "", "the opencnam api auth token")
+	phone := flag.String("phone", "", "a single phone number")
+	phoneFile := flag.String("file", "", "a list of phone numbers")
+	sid := flag.String("sid", "", "the opencnam api sid")
+	token := flag.String("token", "", "the opencnam api auth token")
 	flag.Parse()
-	phone := *phonePtr
-	phonefile := *phoneFilePtr
-	sid := *sidPtr
-	token := *tokenPtr
 
-	if (*phonePtr != "") && (*phoneFilePtr != "") {
-		fmt.Println("-phone and -file are mutually exclusive")
-		os.Exit(1)
+	requests := []string{}
+	cnams := &Opencnams{}
+
+	if (*phone != "") && (*phoneFile != "") {
+		log.Fatal("-phone and -file are mutually exclusive")
 	}
-	if *sidPtr == "" {
-		fmt.Println("an opencnam sid is required")
-		os.Exit(1)
+	if *sid == "" {
+		log.Fatal("an opencnam sid is required")
 	}
-	if *tokenPtr == "" {
-		fmt.Println("an opencnam auth token is required")
-		os.Exit(1)
+	if *token == "" {
+		log.Fatal("an opencnam auth token is required")
 	}
-	if *phonePtr != "" {
-		cnamReq(phone, sid, token)
+	if *phone != "" {
+		requests = append(requests, *phone)
 	}
-	if *phoneFilePtr != "" {
-		lines, err := readLines(phonefile)
+	if *phoneFile != "" {
+		lines, err := readLines(*phoneFile)
 		if err != nil {
 			log.Fatalf("readLines: %s", err)
-		} else {
-			for _, line := range lines {
-				cnamReq(line, sid, token)
-			}
 		}
+		requests = append(requests, lines...)
 	}
+	for _, r := range requests {
+		result, err := cnamReq(r, *sid, *token)
+		if err != nil {
+			log.Fatal(err)
+		}
+		cnams.Results = append(cnams.Results, result)
+	}
+	j, err := json.MarshalIndent(cnams, "", "    ")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(string(j))
 }
