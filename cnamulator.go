@@ -29,6 +29,11 @@ func cnamReq(phonenum, sid, token string) (Opencnam, error) {
 	}
 	defer resp.Body.Close()
 	data, err := ioutil.ReadAll(resp.Body)
+	if len(data) == 0 {
+		oc.Number = phonenum
+		oc.Name = "undefined"
+		return oc, err
+	}
 	if err != nil {
 		return oc, err
 	}
